@@ -74,13 +74,25 @@ class MultiModalProcessor:
         # Create node data for the entity
         node_data = {
             "entity_id": entity_name,
-            "entity_type": content_type.upper(),  # Use content type as entity type
+            "entity_type": content_type,  # Use content type as entity type
             "description": enhanced_caption,
             "source_id": source_id,
             "file_path": file_path,  # Optional, can be customized
         }
         # Add entity to knowledge graph
         await self.knowledge_graph_inst.upsert_node(entity_name, node_data)
+        
+        # Insert entity into entities vector database
+        entity_vdb_data = {
+            compute_mdhash_id(entity_name, prefix="ent-"): {
+                "entity_name": entity_name,
+                "entity_type": content_type,
+                "content": f"{entity_name}\n{enhanced_caption}",
+                "source_id": source_id,
+                "file_path": file_path,
+            }
+        }
+        await self.entities_vdb.upsert(entity_vdb_data)
         
         # 6. Find potential relationships with existing entities
         relationships = await self._find_related_entities(node_data)
@@ -95,13 +107,25 @@ class MultiModalProcessor:
                 "file_path": file_path,
             }
             await self.knowledge_graph_inst.upsert_edge(relation["source"], relation["target"], edge_data)
+            
+            # Insert relationship into relationships vector database
+            relationship_vdb_data = {
+                compute_mdhash_id(relation["source"] + relation["target"], prefix="rel-"): {
+                    "src_id": relation["source"],
+                    "tgt_id": relation["target"],
+                    "keywords": relation["keywords"],
+                    "content": f"{relation['source']}\t{relation['target']}\n{relation['keywords']}\n{relation['description']}",
+                    "source_id": source_id,
+                    "file_path": file_path,
+                }
+            }
+            await self.relationships_vdb.upsert(relationship_vdb_data)
 
-        print(self.knowledge_graph_inst)
         await self._insert_done()
 
         return enhanced_caption, {
             "entity_name": entity_name, 
-            "entity_type": content_type.upper(),
+            "entity_type": content_type,
             "description": enhanced_caption,
             "relationships": relationships
         }
